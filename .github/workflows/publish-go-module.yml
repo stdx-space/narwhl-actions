@@ -1,0 +1,80 @@
+name: Smoke Test publish-go-module
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'publish-go-module/**'
+      - '.github/workflows/publish-go-module.yml'
+  pull_request:
+    paths:
+      - 'publish-go-module/**'
+      - '.github/workflows/publish-go-module.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+defaults:
+  run:
+    shell: bash
+
+jobs:
+  test:
+    name: Lint and unit tests
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: publish-go-module
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - uses: actions/setup-go@v7
+        with:
+          go-version-file: publish-go-module/go.mod
+          cache-dependency-path: publish-go-module/go.sum
+
+      - run: test -z "$(gofmt -l .)"
+      - run: go vet ./...
+      - run: go test ./...
+
+  dry-run:
+    name: Pack a tagged module and install it
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v7
+
+      - name: Create a library with a tagged module
+        run: |
+          lib="$RUNNER_TEMP/library"
+          mkdir -p "$lib/go/example"
+          cd "$lib"
+          git init -q
+          printf 'module packages.narwhl.dev/go/example\n\ngo 1.22\n' > go/example/go.mod
+          printf 'package example\n\nfunc Hello() string { return "hello" }\n' > go/example/example.go
+          git add .
+          git -c user.name=ci -c user.email=ci@localhost commit -q -m example
+          git tag go/example/v0.1.0
+
+      - name: Pack with the action
+        uses: ./publish-go-module
+        with:
+          path: ${{ runner.temp }}/library
+          tag: go/example/v0.1.0
+          out: ${{ runner.temp }}/goproxy
+
+      - name: Install it from the packed tree
+        env:
+          GOPROXY: file://${{ runner.temp }}/goproxy
+          GONOSUMDB: packages.narwhl.dev
+          GOTOOLCHAIN: local
+        run: |
+          app="$RUNNER_TEMP/app"
+          mkdir -p "$app" && cd "$app"
+          go mod init example.com/app
+          printf 'package main\n\nimport "packages.narwhl.dev/go/example"\n\nfunc main() { println(example.Hello()) }\n' > main.go
+          go get packages.narwhl.dev/go/example@v0.1.0
+          test "$(go list -m -f '{{.Version}}' packages.narwhl.dev/go/example)" = v0.1.0
+          go run .

@@ -1,6 +1,6 @@
 # narwhl/actions
 
-A collection of GitHub Actions for keyless authentication and HashiCorp tooling.
+A collection of GitHub Actions for keyless authentication, HashiCorp tooling, and publishing packages to `packages.narwhl.dev`.
 
 Every push force-updates the `latest` tag (see [`.github/workflows/tag.yml`](.github/workflows/tag.yml)), so any action below can be referenced as `@latest`. Note this tag is mutable — pin to a commit SHA if you need stable behavior.
 
@@ -92,6 +92,29 @@ steps:
 ```
 
 Without `id-token`, behavior is identical to upstream: runner-requested workload identity (`audience` + `oauth-client-id`), OAuth client (`oauth-secret`), or a classic auth key.
+
+### [publish-go-module](publish-go-module)
+
+Publishes the Go module named by a pushed release tag (`go/<name>/vX.Y.Z`) to `packages.narwhl.dev`, so it installs as `go get packages.narwhl.dev/go/<name>`. The upload is authorized by the job's GitHub OIDC token, so no secrets are needed. The action's README covers the naming and tag rules and has a full release workflow.
+
+```yml
+on:
+  push:
+    tags: ["go/*/v*"]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+    - uses: actions/checkout@v7
+    - uses: narwhl/actions/publish-go-module@latest
+```
+
+The same program runs outside Actions: `go install github.com/narwhl/actions/publish-go-module@latest`.
 
 ## License
 
