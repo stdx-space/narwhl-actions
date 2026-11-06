@@ -13,7 +13,7 @@ import (
 	"time"
 )
 
-const host = "packages.narwhl.dev"
+const host = "pkg.narwhl.dev"
 
 func TestParseTag(t *testing.T) {
 	for _, tc := range []struct {
@@ -46,13 +46,24 @@ func TestParseTag(t *testing.T) {
 
 func TestExpectedPath(t *testing.T) {
 	for version, want := range map[string]string{
-		"v0.1.0": host + "/go/authz",
-		"v1.9.0": host + "/go/authz",
-		"v2.0.0": host + "/go/authz/v2",
-		"v3.1.0": host + "/go/authz/v3",
+		"v0.1.0": host + "/authz",
+		"v1.9.0": host + "/authz",
+		"v2.0.0": host + "/authz/v2",
+		"v3.1.0": host + "/authz/v3",
 	} {
-		if got := ExpectedPath(host, "go/authz", version); got != want {
-			t.Errorf("ExpectedPath(%s) = %s, want %s", version, got, want)
+		if got, err := ExpectedPath(host, "go", "go/authz", version); err != nil || got != want {
+			t.Errorf("ExpectedPath(%s) = %s, %v; want %s", version, got, err, want)
+		}
+	}
+	if got, err := ExpectedPath(host, "go", "go/auth/oidc", "v0.1.0"); err != nil || got != host+"/auth/oidc" {
+		t.Errorf("ExpectedPath(go/auth/oidc) = %s, %v", got, err)
+	}
+	if got, err := ExpectedPath(host, "", "go/authz", "v0.1.0"); err != nil || got != host+"/go/authz" {
+		t.Errorf("ExpectedPath without a source directory = %s, %v", got, err)
+	}
+	for _, dir := range []string{"lib/authz", "go", "gopher/authz"} {
+		if got, err := ExpectedPath(host, "go", dir, "v0.1.0"); err == nil {
+			t.Errorf("ExpectedPath(%s) = %s, want an error: not under go/", dir, got)
 		}
 	}
 }
@@ -71,10 +82,10 @@ func testRepo(t *testing.T) string {
 		}
 	}
 	write("go/go.work", "go 1.25.0\n\nuse ./authz\n")
-	write("go/authz/go.mod", "module "+host+"/go/authz\n\ngo 1.25.0\n")
+	write("go/authz/go.mod", "module "+host+"/authz\n\ngo 1.25.0\n")
 	write("go/authz/authz.go", "package authz\n")
 	write("go/authz/cmd/fgagen/main.go", "package main\n\nfunc main() {}\n")
-	write("go/authz/fga/go.mod", "module "+host+"/go/authz/fga\n") // nested module: excluded
+	write("go/authz/fga/go.mod", "module "+host+"/authz/fga\n") // nested module: excluded
 	write("go/authz/fga/fga.go", "package fga\n")
 	write("go/authn/go.mod", "module github.com/narwhl/library/go/authn\n") // wrong path
 	write("README.md", "library\n")
@@ -102,11 +113,11 @@ func run(t *testing.T, dir string, args ...string) {
 
 func TestPack(t *testing.T) {
 	repo := testRepo(t)
-	r, err := Pack(context.Background(), repo, "go/authz/v0.1.0", host)
+	r, err := Pack(context.Background(), repo, "go/authz/v0.1.0", host, "go")
 	if err != nil {
 		t.Fatal(err)
 	}
-	if r.Module.Path != host+"/go/authz" || r.Module.Version != "v0.1.0" || r.Dir != "go/authz" {
+	if r.Module.Path != host+"/authz" || r.Module.Version != "v0.1.0" || r.Dir != "go/authz" {
 		t.Errorf("module = %v in %s", r.Module, r.Dir)
 	}
 	if want := time.Date(2026, 11, 4, 12, 30, 0, 0, time.UTC); !r.Time.Equal(want) || r.Time.Location() != time.UTC {
@@ -115,7 +126,7 @@ func TestPack(t *testing.T) {
 	if len(r.Commit) != 40 || !strings.HasPrefix(r.Hash, "h1:") {
 		t.Errorf("commit = %q, hash = %q", r.Commit, r.Hash)
 	}
-	if string(r.GoMod) != "module "+host+"/go/authz\n\ngo 1.25.0\n" {
+	if string(r.GoMod) != "module "+host+"/authz\n\ngo 1.25.0\n" {
 		t.Errorf("go.mod = %q", r.GoMod)
 	}
 
@@ -128,7 +139,7 @@ func TestPack(t *testing.T) {
 		names = append(names, f.Name)
 	}
 	slices.Sort(names)
-	prefix := host + "/go/authz@v0.1.0/"
+	prefix := host + "/authz@v0.1.0/"
 	want := []string{prefix + "authz.go", prefix + "cmd/fgagen/main.go", prefix + "go.mod"}
 	if !slices.Equal(names, want) {
 		t.Errorf("zip files:\n got %q\nwant %q", names, want)
@@ -138,12 +149,13 @@ func TestPack(t *testing.T) {
 func TestPackRejects(t *testing.T) {
 	repo := testRepo(t)
 	for tag, want := range map[string]string{
-		"go/authz/v2.0.0":   "publishes " + host + "/go/authz/v2",
+		"go/authz/v2.0.0":   "publishes " + host + "/authz/v2",
 		"go/authn/v0.1.0":   "declares module github.com/narwhl/library/go/authn",
 		"go/missing/v0.1.0": "go/missing/go.mod",
 		"go/authz/v9.9.9":   "not found",
+		"lib/authz/v0.1.0":  "not a directory under go/",
 	} {
-		_, err := Pack(context.Background(), repo, tag, host)
+		_, err := Pack(context.Background(), repo, tag, host, "go")
 		if err == nil || !strings.Contains(err.Error(), want) {
 			t.Errorf("Pack(%s) error = %v, want it to mention %q", tag, err, want)
 		}

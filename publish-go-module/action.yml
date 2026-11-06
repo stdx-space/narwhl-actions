@@ -1,5 +1,5 @@
 name: "narwhl - Publish Go Module"
-description: "Packs the Go module named by a release tag (go/<name>/vX.Y.Z) and publishes it to packages.narwhl.dev, authorized by the job's GitHub OIDC token."
+description: "Packs the Go module named by a release tag (go/<name>/vX.Y.Z) and publishes it to pkg.narwhl.dev, authorized by the job's GitHub OIDC token."
 author: "narwhl"
 
 inputs:
@@ -14,7 +14,11 @@ inputs:
   host:
     description: "Host part of the module paths."
     required: false
-    default: "packages.narwhl.dev"
+    default: "pkg.narwhl.dev"
+  source-dir:
+    description: "Directory of the repository that holds the Go modules. Module paths are <host>/<directory below it>: go/authz is pkg.narwhl.dev/authz."
+    required: false
+    default: "go"
   proxy:
     description: "Module proxy to publish to. Defaults to https://<host>."
     required: false
@@ -43,6 +47,7 @@ runs:
         INPUT_TAG: ${{ inputs.tag }}
         INPUT_PATH: ${{ inputs.path }}
         INPUT_HOST: ${{ inputs.host }}
+        INPUT_SOURCE_DIR: ${{ inputs.source-dir }}
         INPUT_PROXY: ${{ inputs.proxy }}
         INPUT_MIRROR: ${{ inputs.mirror }}
         INPUT_OUT: ${{ inputs.out }}
@@ -52,7 +57,7 @@ runs:
       run: |
         # The tool runs from the action's directory, so resolve paths against the workspace.
         abs() { case "$1" in /*) printf '%s' "$1" ;; *) printf '%s/%s' "$GITHUB_WORKSPACE" "$1" ;; esac; }
-        args=(-repo "$(abs "$INPUT_PATH")" -host "$INPUT_HOST" -mirror "$INPUT_MIRROR")
+        args=(-repo "$(abs "$INPUT_PATH")" -host "$INPUT_HOST" -source-dir "$INPUT_SOURCE_DIR" -mirror "$INPUT_MIRROR")
         if [[ -n "$INPUT_TAG" ]]; then args+=(-tag "$INPUT_TAG"); fi
         if [[ -n "$INPUT_PROXY" ]]; then args+=(-proxy "$INPUT_PROXY"); fi
         if [[ -n "$INPUT_OUT" ]]; then args+=(-out "$(abs "$INPUT_OUT")"); fi

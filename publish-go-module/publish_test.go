@@ -10,7 +10,7 @@ import (
 	"testing"
 )
 
-// fakeProxy stores what is PUT and serves it back like the packages.narwhl.dev Worker.
+// fakeProxy stores what is PUT and serves it back like the registry Worker at pkg.narwhl.dev.
 type fakeProxy struct {
 	mu      sync.Mutex
 	files   map[string][]byte
@@ -32,7 +32,7 @@ func (p *fakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		body, _ := io.ReadAll(r.Body)
 		base := strings.TrimSuffix(r.URL.Path, ".zip")
 		p.files[base+".zip"] = body
-		p.files[base+".mod"] = []byte("module " + host + "/go/authz\n\ngo 1.25.0\n")
+		p.files[base+".mod"] = []byte("module " + host + "/authz\n\ngo 1.25.0\n")
 		p.files[base[:strings.LastIndex(base, "/")]+"/list"] = []byte("v0.1.0\n")
 		w.WriteHeader(http.StatusCreated)
 	case http.MethodGet:
@@ -45,7 +45,7 @@ func (p *fakeProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 }
 
 func TestUploadAndVerify(t *testing.T) {
-	r, err := Pack(context.Background(), testRepo(t), "go/authz/v0.1.0", host)
+	r, err := Pack(context.Background(), testRepo(t), "go/authz/v0.1.0", host, "go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -63,7 +63,7 @@ func TestUploadAndVerify(t *testing.T) {
 	if got := fp.headers.Get("Module-Time"); got != "2026-11-04T12:30:00Z" {
 		t.Errorf("Module-Time = %q", got)
 	}
-	if _, ok := fp.files["/"+host+"/go/authz/@v/v0.1.0.zip"]; !ok {
+	if _, ok := fp.files["/"+host+"/authz/@v/v0.1.0.zip"]; !ok {
 		t.Errorf("zip not stored at the GOPROXY path; have %v", keys(fp.files))
 	}
 	if err := Verify(context.Background(), srv.Client(), srv.URL, r); err != nil {
@@ -71,14 +71,14 @@ func TestUploadAndVerify(t *testing.T) {
 	}
 
 	// A proxy serving other code for the version fails verification.
-	fp.files["/"+host+"/go/authz/@v/v0.1.0.zip"] = testZip(t)
+	fp.files["/"+host+"/authz/@v/v0.1.0.zip"] = testZip(t)
 	if err := Verify(context.Background(), srv.Client(), srv.URL, r); err == nil || !strings.Contains(err.Error(), "hashes to") {
 		t.Errorf("Verify with a different zip = %v, want a hash mismatch", err)
 	}
 }
 
 func TestUploadConflict(t *testing.T) {
-	r, err := Pack(context.Background(), testRepo(t), "go/authz/v0.1.0", host)
+	r, err := Pack(context.Background(), testRepo(t), "go/authz/v0.1.0", host, "go")
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -119,7 +119,7 @@ func TestOIDCToken(t *testing.T) {
 }
 
 func testZip(t *testing.T) []byte {
-	r, err := Pack(context.Background(), testRepoWith(t, "package authz // changed\n"), "go/authz/v0.1.0", host)
+	r, err := Pack(context.Background(), testRepoWith(t, "package authz // changed\n"), "go/authz/v0.1.0", host, "go")
 	if err != nil {
 		t.Fatal(err)
 	}

@@ -1,9 +1,9 @@
 # publish-go-module
 
-This GitHub Action publishes a Go module to `packages.narwhl.dev`, narwhl's Go module proxy, when a release tag is pushed. It packs the module from the tagged commit with [`golang.org/x/mod/zip`](https://pkg.go.dev/golang.org/x/mod/zip) and uploads it with the job's GitHub OIDC token, so the repository needs no secrets. Afterwards anyone can install it:
+This GitHub Action publishes a Go module to `pkg.narwhl.dev`, narwhl's Go module proxy, when a release tag is pushed. It packs the module from the tagged commit with [`golang.org/x/mod/zip`](https://pkg.go.dev/golang.org/x/mod/zip) and uploads it with the job's GitHub OIDC token, so the repository needs no secrets. Afterwards anyone can install it:
 
 ```sh
-go get packages.narwhl.dev/go/authz@latest
+go get pkg.narwhl.dev/authz@latest
 ```
 
 ### Usage
@@ -15,7 +15,7 @@ on:
 
 permissions:
   contents: read
-  id-token: write # the OIDC token is the only credential packages.narwhl.dev accepts
+  id-token: write # the OIDC token is the only credential pkg.narwhl.dev accepts
 
 concurrency:
   group: publish-${{ github.ref }}
@@ -35,17 +35,17 @@ A fuller workflow, which also builds and tests the module on its own before publ
 
 | | Example |
 |---|---|
-| Module path | `packages.narwhl.dev/go/authz` |
+| Module path | `pkg.narwhl.dev/authz`: the host, then the directory below `go/` |
 | go.mod | `go/authz/go.mod`, declaring exactly that path |
 | Release tag | `go/authz/v0.1.0`: the go.mod directory, then the version |
-| v2 and later | module `packages.narwhl.dev/go/authz/v2`, go.mod still in `go/authz/`, tag `go/authz/v2.0.0` |
+| v2 and later | module `pkg.narwhl.dev/authz/v2`, go.mod still in `go/authz/`, tag `go/authz/v2.0.0` |
 
-Change a module's `go.mod` to its `packages.narwhl.dev` path before its first tag. Once a version is published, changing the path creates a new module.
+Change a module's `go.mod` to its `pkg.narwhl.dev` path before its first tag. Once a version is published, changing the path creates a new module. A tag outside `go/` is refused. Some names can't be modules, because pkg.narwhl.dev uses them itself: `assets`, `favicon.svg`, `__manifest`, `healthz` and `pkg.narwhl.dev`.
 
 ### Rules
 
-- **A published version never changes.** sum.golang.org records each version's hash the first time it is fetched, so different contents later would break every user. To fix a bad release, publish a new version and add a [`retract`](https://go.dev/ref/mod#go-mod-file-retract) directive. Never move or re-push a tag. packages.narwhl.dev refuses to replace a version (409). Re-running the same release is accepted.
-- Only release tags can publish, and only the version the tag names. packages.narwhl.dev accepts tokens only from the repositories allowed to publish there, which today is [narwhl/library](https://github.com/narwhl/library).
+- **A published version never changes.** sum.golang.org records each version's hash the first time it is fetched, so different contents later would break every user. To fix a bad release, publish a new version and add a [`retract`](https://go.dev/ref/mod#go-mod-file-retract) directive. Never move or re-push a tag. pkg.narwhl.dev refuses to replace a version (409). Re-running the same release is accepted.
+- Only release tags can publish, and only the version the tag names. pkg.narwhl.dev accepts tokens only from the repositories allowed to publish there, which today is [narwhl/library](https://github.com/narwhl/library).
 - Release versions only (`v1.2.3`, `v1.2.3-rc.1`). No pseudo-versions, no `+build` metadata.
 - The module zip may be at most 32 MiB.
 - Protect the release tags (a ruleset that blocks updating and deleting `go/*/v*`): pushing a tag is what grants permission to publish.
@@ -54,7 +54,8 @@ Change a module's `go.mod` to its `packages.narwhl.dev` path before its first ta
 
 - `tag` — release tag to publish, `<module directory>/<version>`. Defaults to the pushed tag.
 - `path` — checkout holding the tag, relative to the workspace. Defaults to the workspace.
-- `host` — host part of the module paths. Defaults to `packages.narwhl.dev`.
+- `host` — host part of the module paths. Defaults to `pkg.narwhl.dev`.
+- `source-dir` — directory of the repository that holds the Go modules. Module paths are `<host>/<directory below it>`. Defaults to `go`.
 - `proxy` — module proxy to publish to. Defaults to `https://<host>`.
 - `mirror` — public mirror to warm after publishing, so pkg.go.dev and sum.golang.org see the version straight away. Defaults to `https://proxy.golang.org`; empty to skip.
 - `out` — write the version into this directory as a GOPROXY tree instead of publishing it, for a dry run. Relative to the workspace.
@@ -62,7 +63,7 @@ Change a module's `go.mod` to its `packages.narwhl.dev` path before its first ta
 ### What it does
 
 1. Packs the module from the tagged commit. Nested modules and untracked files are left out, as the go command does.
-2. Checks the zip with `zip.CheckZip` and uploads it with the job's OIDC token (audience `https://packages.narwhl.dev`).
+2. Checks the zip with `zip.CheckZip` and uploads it with the job's OIDC token (audience `https://pkg.narwhl.dev`).
 3. Downloads the version back and checks its `h1:` hash.
 4. Asks proxy.golang.org for the version, so pkg.go.dev and sum.golang.org pick it up.
 
@@ -75,10 +76,10 @@ The action is a Go program you can run directly:
 ```sh
 go install github.com/narwhl/actions/publish-go-module@latest
 publish-go-module -repo path/to/library -tag go/authz/v0.1.0 -out /tmp/goproxy  # dry run
-GOPROXY=file:///tmp/goproxy GONOSUMDB=packages.narwhl.dev go get packages.narwhl.dev/go/authz@v0.1.0
+GOPROXY=file:///tmp/goproxy GONOSUMDB=pkg.narwhl.dev go get pkg.narwhl.dev/authz@v0.1.0
 ```
 
-To publish rather than write a dry-run tree, set `REGISTRY_TOKEN` to a token packages.narwhl.dev accepts.
+To publish rather than write a dry-run tree, set `REGISTRY_TOKEN` to a token pkg.narwhl.dev accepts.
 
 ### Example workflow
 

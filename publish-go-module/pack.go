@@ -21,7 +21,7 @@ import (
 
 // Release is one module version, packed from a tag and ready to publish.
 type Release struct {
-	Module module.Version // packages.narwhl.dev/go/authz@v0.1.0
+	Module module.Version // pkg.narwhl.dev/authz@v0.1.0
 	Dir    string         // go/authz: go.mod directory and tag prefix
 	Tag    string         // go/authz/v0.1.0
 	Commit string         // full hash of the tagged commit
@@ -55,21 +55,35 @@ func ParseTag(tag string) (dir, version string, err error) {
 }
 
 // ExpectedPath is the module path a go.mod in dir must declare to be
-// published at version: <host>/<dir>, plus /vN from v2 on.
-func ExpectedPath(host, dir, version string) string {
-	p := host + "/" + dir
+// published at version: <host>/<dir below sourceDir>, plus /vN from v2 on.
+// With sourceDir "go", go/authz must declare pkg.narwhl.dev/authz. An empty
+// sourceDir maps dir as it is. A dir outside sourceDir is an error.
+func ExpectedPath(host, sourceDir, dir, version string) (string, error) {
+	rest := dir
+	if sourceDir != "" {
+		var ok bool
+		if rest, ok = strings.CutPrefix(dir, sourceDir+"/"); !ok {
+			return "", fmt.Errorf("%s is not a directory under %s/, which holds the Go modules", dir, sourceDir)
+		}
+	}
+	p := host + "/" + rest
 	if major := semver.Major(version); major != "v0" && major != "v1" {
 		p += "/" + major
 	}
-	return p
+	return p, nil
 }
 
-// Pack builds the release for tag from the git repository at repoRoot. It
-// reads only committed content of the tagged commit, never the working tree.
-func Pack(ctx context.Context, repoRoot, tag, host string) (*Release, error) {
+// Pack builds the release for tag from the git repository at repoRoot, whose
+// directory sourceDir holds the Go modules. It reads only committed content
+// of the tagged commit, never the working tree.
+func Pack(ctx context.Context, repoRoot, tag, host, sourceDir string) (*Release, error) {
 	dir, version, err := ParseTag(tag)
 	if err != nil {
 		return nil, err
+	}
+	want, err := ExpectedPath(host, sourceDir, dir, version)
+	if err != nil {
+		return nil, fmt.Errorf("tag %s: %w", tag, err)
 	}
 	root, err := filepath.Abs(repoRoot)
 	if err != nil {
@@ -94,7 +108,7 @@ func Pack(ctx context.Context, repoRoot, tag, host string) (*Release, error) {
 		return nil, fmt.Errorf("%s/go.mod has no module directive", dir)
 	}
 	modPath := f.Module.Mod.Path
-	if want := ExpectedPath(host, dir, version); modPath != want {
+	if modPath != want {
 		return nil, fmt.Errorf("%s/go.mod declares module %s, but tag %s publishes %s", dir, modPath, tag, want)
 	}
 	m := module.Version{Path: modPath, Version: version}

@@ -1,10 +1,11 @@
 // Command publish-go-module packs the Go module named by a release tag and
-// publishes it to a module proxy such as packages.narwhl.dev. It is also the
+// publishes it to a module proxy such as pkg.narwhl.dev. It is also the
 // narwhl/actions/publish-go-module action; see README.md.
 //
 // A tag go/authz/v0.1.0 publishes the module whose go.mod is go/authz/go.mod,
-// at version v0.1.0. That go.mod must declare packages.narwhl.dev/go/authz
-// (packages.narwhl.dev/go/authz/v2 for v2.x.y tags, and so on).
+// at version v0.1.0. That go.mod must declare pkg.narwhl.dev/authz: the host,
+// then the directory below go/ (pkg.narwhl.dev/authz/v2 for v2.x.y tags, and
+// so on).
 //
 //	publish-go-module -repo ../library -tag go/authz/v0.1.0            # pack, upload, verify
 //	publish-go-module -repo ../library -tag go/authz/v0.1.0 -out dist  # pack into a GOPROXY tree only
@@ -35,7 +36,8 @@ func main() {
 
 	tag := flag.String("tag", defaultTag(), "release tag, <module directory>/<version>")
 	repo := flag.String("repo", ".", "root of the git repository holding the tag")
-	host := flag.String("host", "packages.narwhl.dev", "host part of the module paths")
+	host := flag.String("host", "pkg.narwhl.dev", "host part of the module paths")
+	sourceDir := flag.String("source-dir", "go", "directory of the repository holding the Go modules; module paths are <host>/<directory below it>")
 	proxy := flag.String("proxy", "", "module proxy to publish to (default https://<host>)")
 	audience := flag.String("audience", "", "OIDC token audience (default https://<host>)")
 	mirror := flag.String("mirror", "https://proxy.golang.org", "public mirror to warm after publishing; empty to skip")
@@ -56,7 +58,7 @@ func main() {
 	defer stop()
 	client := &http.Client{Timeout: 2 * time.Minute}
 
-	r, err := Pack(ctx, *repo, *tag, *host)
+	r, err := Pack(ctx, *repo, *tag, *host, *sourceDir)
 	if err != nil {
 		log.Fatal(err)
 	}
